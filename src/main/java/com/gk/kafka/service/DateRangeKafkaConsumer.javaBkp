@@ -1,0 +1,93 @@
+package com.gk.kafka_to_mongo.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.listener.ConsumerSeekAware;
+import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.stereotype.Service;
+import org.apache.kafka.common.TopicPartition;
+
+
+import java.time.Instant;
+import java.util.Collection;
+import java.util.Map;
+
+@Service
+@Slf4j
+public class DateRangeKafkaConsumer implements ConsumerSeekAware {
+
+    private static final long FROM_TIMESTAMP = 1741824000L; // 2025-03-17T00:00:00.000Z
+    private static final long TO_TIMESTAMP = 1741910399000L;   // 2025-03-07T15:00:00.000Z
+    private ConsumerSeekCallback seekCallback;
+
+    @Autowired
+    private AsyncFunctions asyncFunctions;
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    private void processMessage(String message) {
+        try {
+            message = message.replaceAll("[\\r\\n]+", "").trim();
+            JsonNode jsonNode = objectMapper.readTree(message);
+            jsonNode = replaceEmptyObjectsWithNull(jsonNode);
+            if (jsonNode.has("Status")) {
+                log.info("UPDATE Message operation started ...");
+                asyncFunctions.pushKafkaUpdateMsgToMongoDB(jsonNode);
+            } else {
+                log.info("INSERT Message operation started ...");
+                asyncFunctions.pushKafkaInsertMsgToMongoDB(jsonNode);
+            }
+        } catch (Exception e) {
+            // TODO write logic to To Store message into DB
+            e.printStackTrace();
+        }
+    }
+
+    @KafkaListener(topics = "Message_Topic", groupId = "date-range-group", containerFactory = "kafkaListenerContainerFactory")
+    public void listen(String message, ConsumerRecord<String, String> record, Acknowledgment ack) {
+        //System.out.println("Received message: " + message + " at " + Instant.ofEpochMilli(record.timestamp()));
+        long messageTimestamp = record.timestamp();
+        // Filter messages within the date range
+        System.out.println("Gopii =>" + messageTimestamp);
+        if (messageTimestamp >= FROM_TIMESTAMP && messageTimestamp <= TO_TIMESTAMP) {
+            System.out.println("Consumed Message: " + record.value() + " at " + Instant.ofEpochMilli(messageTimestamp));
+            ack.acknowledge(); // Manually acknowledge the message
+            processMessage(record.value());
+        }else {
+            System.out.println("Skipping message: " + message);
+        }
+
+    }
+
+    @Override
+    public void onPartitionsAssigned(Map<TopicPartition, Long> assignments, ConsumerSeekCallback callback) {
+        this.seekCallback = callback;
+
+        // Convert the partitions to a collection
+        Collection<TopicPartition> partitions = assignments.keySet();
+
+        // Seek to the specific timestamp for all partitions
+        System.out.println("Seeking partitions to timestamp: " + FROM_TIMESTAMP);
+        callback.seekToTimestamp(partitions, FROM_TIMESTAMP); // ✅ Corrected method usage
+    }
+
+    private static JsonNode replaceEmptyObjectsWithNull(JsonNode node) {
+        if (node.isObject()) {
+            ObjectNode objectNode = (ObjectNode) node;
+            objectNode.fieldNames().forEachRemaining(field -> {
+                JsonNode childNode = objectNode.get(field);
+                if (childNode.isObject() && childNode.size() == 0) { // Check for empty JSON {}
+                    objectNode.set(field, null); // Replace {} with null
+                } else {
+                    replaceEmptyObjectsWithNull(childNode); // Recursive check for nested objects
+                }
+            });
+        }
+        return node;
+    }
+}

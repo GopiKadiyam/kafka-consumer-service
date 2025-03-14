@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: kafka-msg-consumer
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: batch-consumer-group-1
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      max-poll-records: 50
+#      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+#      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+  data:
+    mongodb:
+      uri: mongodb://admin:password@localhost:27017/gk_db?authSource=admin
+server:
+  port: 8899
+logging:
+  level:
+    root: INFO  # Default log level for all packages
+  logback:
+    rollingpolicy:
+      file-name-pattern: my-app.log
+      max-file-size: 200MB  # Max size for a single log file
+      total-size-cap: 800MB  # Total size of all rotated log files
+      max-history: 10  # Number of log archives to keep
