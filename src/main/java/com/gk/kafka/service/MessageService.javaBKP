@@ -37,36 +37,34 @@ public class MessageService {
     @Autowired
     private ObjectMapper objectMapper;
 
-    public void processMessage(String message, String batchUUID, String msgKey) {
+    public void processMessage(String message, String batchUUID, String kafkaMsgKey,long timestamp) {
         try {
             message = message.replaceAll("[\\r\\n]+", "").trim();
-            log.info("##### {}", message);
             JsonNode jsonNode = objectMapper.readTree(message);
             //jsonNode = replaceEmptyObjectsWithNull(jsonNode);
+            String messageId = jsonNode.get("Id").asText();
             if (jsonNode.has("Status")) {
-                log.info("{} UPDATE MSG operation started for msgKey {}", batchUUID, msgKey);
-                handleUpdateMessage(jsonNode, batchUUID, msgKey);
+                //log.info("{} UPDATE MSG operation started for messageId {} kafkaMsgKey {} timestamp {} process started ..", batchUUID, messageId, kafkaMsgKey,timestamp);
+                handleUpdateMessage(jsonNode, batchUUID, kafkaMsgKey, messageId,timestamp);
             } else {
-                log.info("{} INSERT MSG operation started for msgKey {}", batchUUID, msgKey);
-                handleInsertMessage(jsonNode, batchUUID, msgKey);
+                //log.info("{} INSERT MSG operation started for messageId {}  kafkaMsgKey {} timestamp {} process started ..", batchUUID, messageId, kafkaMsgKey,timestamp);
+                handleInsertMessage(jsonNode, batchUUID, kafkaMsgKey, messageId,timestamp);
             }
         } catch (Exception e) {
             // TODO write logic to To Store message into DB
             //e.printStackTrace();
-            log.error("#PROCESS_ERR {} getting error while parsing json for msgKey {} ", batchUUID, msgKey);
+            log.info("{} PROCESS_MSG - kafkaMsgKey {} - timestamp {} - #PROCESS_ERR  ", batchUUID, kafkaMsgKey,timestamp);
+            //log.error("#PROCESS_ERR {} getting error while parsing json for msgKey {} ", batchUUID, kafkaMsgKey);
         }
     }
 
-    private void handleInsertMessage(JsonNode jsonNode, String batchUUID, String kafkaMsgKey) {
-        //2025-03-14T13:49:35.184+05:30  INFO 20044 --- [org.springframework.kafka.KafkaListenerEndpointContainer#0-0-C-1] c.g.k.service.KafkaConsumer              : BATCH-ID-0884bbc9-03a5-4078-a645-dead5f23a218 ConsumerRecord key 52869ec3-629a-41aa-858c-f9e9fb2e0e17 and value {"TenantId":"52869ec3-629a-41aa-858c-f9e9fb2e0e17","ReceivedAt":"2025-02-27T07:40:09.7450638+05:30","Request":{"from":"PORTER","to":"8448820306","country":"IN","body":"<#> Your Porter app verification code is 175460. Thank you. bEsxYhqK5AU - Team Porter","templateId":"1107161139929937618","entityId":"1101693680000010032","messageType":2,"customId":"4bb48fc8-6f50-45e8-a298-3fcac933d3da","metadata":{},"flash":false,"serviceType":0},"BatchId":"68a37061-5bc7-436b-b8cb-10883a8aa7c1","Id":"68a37061-5bc7-436b-b8cb-10883a8aa7c1"} with timestamp 1740622209795
-        //2025-03-14T13:49:35.184+05:30  INFO 20044 --- [org.springframework.kafka.KafkaListenerEndpointContainer#0-0-C-1] c.g.k.service.KafkaConsumer              : BATCH-ID-0884bbc9-03a5-4078-a645-dead5f23a218 ConsumerRecord key 52869ec3-629a-41aa-858c-f9e9fb2e0e17 and value {"Status":"id:S11100572707400873160257197 sub:001 dlvrd:001 submit date:250227074008 done date:250227074008 stat:DELIVRD err:000 text:","Type":"1","PartnerMessageId":"S11100572707400873160257197","Smscid":"TESYNCOTP2","Timestamp":"1740622210","Id":"fbe6d09d-f6d4-4b08-90e8-264dd6cc3755","ServiceId":"673ef5bb45288d4686a298f7","TenantId":"52869ec3-629a-41aa-858c-f9e9fb2e0e17"} with timestamp 1740622210116
-
+    private void handleInsertMessage(JsonNode jsonNode, String batchUUID, String kafkaMsgKey, String messageId,long timestamp) {
         try {
-            String messageId = jsonNode.get("Id").asText();
+
             // Check if document already exists
             Optional<MessageDocument> existingMessageId = messageRepository.findByMessageId(messageId);
             if (existingMessageId.isPresent()) {
-                log.info("#DUPINSERT_ERR {} There already existing entry for messageId :: {} in db for kafkaMsgKey {} ", batchUUID, messageId, kafkaMsgKey);
+                log.info("{} INSERT_MSG - kafkaMsgKey {} - MessageId {} - timestamp {} - #DUPINSERT_ERR  ", batchUUID, kafkaMsgKey,messageId,timestamp);
             }
             if (existingMessageId.isEmpty()) {
                 MessageDocument messageDoc = new MessageDocument();
@@ -108,10 +106,14 @@ public class MessageService {
                 messageDoc.setParameters(parameterJson != null ? objectMapper.convertValue(parameterJson, Map.class) : Collections.emptyMap());
                 messageDoc.setUnits(getUnits(msgBody));
                 messageRepository.save(messageDoc);
-                log.info("{} message ID {} inserted into db for kafkaMsgKey", batchUUID, messageId, kafkaMsgKey);
+                //log.info("{} message ID {} INSERTED_INTO_DB for kafkaMsgKey {}", batchUUID, messageId, kafkaMsgKey);
+                log.info("{} INSERT_MSG - kafkaMsgKey {} - MessageId {} - timestamp {} - INSERTED_INTO_DB  ", batchUUID, kafkaMsgKey,messageId,timestamp);
+
             }
+
         } catch (Exception e) {
-            log.error("#INSERTPARSE_ERR {} unable to process json while INSERT MSG process for kafkaMsgKey {}", batchUUID, kafkaMsgKey);
+            log.info("{} INSERT_MSG - kafkaMsgKey {} - MessageId {} - timestamp {} - #INSERTPARSE_ERR  ", batchUUID, kafkaMsgKey,messageId,timestamp);
+            //log.error("#INSERTPARSE_ERR {} unable to process json while INSERT MSG process for kafkaMsgKey {}", batchUUID, kafkaMsgKey);
         }
     }
 
@@ -133,9 +135,8 @@ public class MessageService {
         return unit;
     }
 
-    private void handleUpdateMessage(JsonNode jsonNode, String batchUUID, String kafkaMsgKey) {
+    private void handleUpdateMessage(JsonNode jsonNode, String batchUUID, String kafkaMsgKey, String messageId,long timestamp) {
         try {
-            String messageId = jsonNode.get("Id").asText();
             // Check if document already exists
             Optional<MessageDocument> existingMessageId = messageRepository.findByMessageId(messageId);
 
@@ -168,13 +169,17 @@ public class MessageService {
 //                        .set("status",statusCode);
 //
 //                mongoTemplate.findAndModify(query, update, MessageDocument.class);
-                log.info("BATCH-ID-{} and ID {} updated into db", batchUUID, messageId);
+               // log.info("{} messageId {} UPDATED_INTO_DB for kafkaMsgKey {}", batchUUID, messageId, kafkaMsgKey);
+                log.info("{} UPDATE_MSG - kafkaMsgKey {} - MessageId {} - timestamp {} - UPDATED_INTO_DB  ", batchUUID, kafkaMsgKey,messageId,timestamp);
+
             } else {
-                log.info("#UPDATEONNONEXISTINGREC_ERR {}  It's for UPDATE MSG Operation, but ID :: {} is not present in db for kafkaMsgKey {}", batchUUID, messageId, kafkaMsgKey);
+                //log.info("#UPDATEONNONEXISTINGREC_ERR {}  It's for UPDATE MSG Operation, but ID :: {} is not present in db for kafkaMsgKey {}", batchUUID, messageId, kafkaMsgKey);
                 //TODO put entry to error collection
+                log.info("{} UPDATE_MSG - kafkaMsgKey {} - MessageId {} - timestamp {} - #UPDATEONNONEXISTINGREC_ERR  ", batchUUID, kafkaMsgKey,messageId,timestamp);
             }
         } catch (Exception e) {
-            log.error("#UPDATEPARSE_ERR {} unable to process json for UPDATE MSG process for kafkaMsgKey{}", batchUUID, kafkaMsgKey);
+            //log.error("#UPDATEPARSE_ERR {} unable to process json for UPDATE MSG process for kafkaMsgKey{}", batchUUID, kafkaMsgKey);
+            log.info("{} UPDATE_MSG - kafkaMsgKey {} - MessageId {} - timestamp {} - #UPDATEPARSE_ERR  ", batchUUID, kafkaMsgKey,messageId,timestamp);
         }
     }
 
